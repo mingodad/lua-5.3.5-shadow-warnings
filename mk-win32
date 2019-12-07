@@ -1,0 +1,2 @@
+make mingw CC="i686-w64-mingw32-gcc -std=c99" \
+	CXX="i686-w64-mingw32-g++ -std=c++11"

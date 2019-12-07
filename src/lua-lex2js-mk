@@ -1,0 +1,1 @@
+gcc -g -o lua-lex2js lua-lex2js.c liblua.a -lm
