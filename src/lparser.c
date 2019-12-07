@@ -11,6 +11,7 @@
 
 
 #include <string.h>
+#include <stdio.h>
 
 #include "lua.h"
 
@@ -62,6 +63,12 @@ typedef struct BlockCnt {
 static void statement (LexState *ls);
 static void expr (LexState *ls, expdesc *v);
 
+static void parser_warning (LexState *ls, const char *msg) {
+  msg = luaO_pushfstring(ls->L, "warning %s", msg);
+  msg = luaG_addinfo(ls->L, msg, ls->source, ls->linenumber);
+  fprintf(stderr, "%s\n", msg);
+  fflush(stderr);
+}
 
 /* semantic error */
 static l_noret semerror (LexState *ls, const char *msg) {
@@ -172,9 +179,39 @@ static int registerlocalvar (LexState *ls, TString *varname) {
 }
 
 
+static void var_check_unique_or_shadow (LexState *ls, FuncState *fs, TString *name, int shadowOnly) {
+  Dyndata *dyd = ls->dyd;
+
+  /* allow '_' and '(for...' duplicates */
+  const char *str_name = getstr(name);
+  if(!(str_name[0] == '(' || (tsslen(name) == 1 && str_name[0] == '_'))) {
+    int vidx, nactvar_n, first_block_local;
+    vidx = fs->firstlocal;
+    nactvar_n = dyd->actvar.n;
+    first_block_local = fs->bl ? fs->bl->nactvar+fs->firstlocal : 0;
+    for (; vidx < nactvar_n; ++vidx) {
+      LocVar *lv = &fs->f->locvars[dyd->actvar.arr[vidx].idx];
+      if (lv && name == lv->varname) {
+        if(vidx <= first_block_local) {
+          int saved_top = lua_gettop(ls->L);
+          parser_warning(ls, luaO_pushfstring(ls->L,
+                 "Name [%s] already declared will be shadowed", str_name));
+          lua_settop(ls->L, saved_top);
+        }
+        else if(!shadowOnly) {
+          luaX_syntaxerror(ls, luaO_pushfstring(ls->L,
+                 "Name [%s] already declared", str_name));
+        }
+      }
+    }
+  }
+  //if(fs->prev) var_check_unique_or_shadow(ls, fs->prev, name, 1);
+}
+
 static void new_localvar (LexState *ls, TString *name) {
   FuncState *fs = ls->fs;
   Dyndata *dyd = ls->dyd;
+  var_check_unique_or_shadow(ls, fs, name, 0);
   int reg = registerlocalvar(ls, name);
   checklimit(fs, dyd->actvar.n + 1 - fs->firstlocal,
                   MAXVARS, "local variables");
